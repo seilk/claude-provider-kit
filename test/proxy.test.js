@@ -18,13 +18,13 @@ function fakeUpstream() {
 test('proxy authenticates and sends upstream model', async () => {
   const upstream = await fakeUpstream();
   const env = { TEST_KEY: 'abc', CPK_STATE_DIR: await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/cpk-state-')) };
-  const profile = { name: 'test', visible_model: 'claude-opus-4-7', max_output_tokens: 64, upstream: { base_url: upstream.url, model: 'gpt-5.5', api_key_env: 'TEST_KEY' }, capabilities: {} };
+  const profile = { name: 'test', visible_model: 'claude-opus-4-7', max_output_tokens: 64, upstream: { base_url: upstream.url, model: 'gpt-4.1', api_key_env: 'TEST_KEY' }, capabilities: {} };
   const proxy = await listenProxy(profile, { env, token: 'local' });
   try {
     const resp = await fetch(`${proxy.url}/v1/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': 'local' }, body: JSON.stringify({ model: 'claude-opus-4-7', messages: [{ role: 'user', content: 'hi' }] }) });
     const data = await resp.json();
     assert.equal(resp.status, 200);
     assert.equal(data.content[0].text, 'UP_OK');
-    assert.equal(upstream.seen[0].model, 'gpt-5.5');
+    assert.equal(upstream.seen[0].model, 'gpt-4.1');
   } finally { proxy.server.close(); upstream.server.close(); }
 });

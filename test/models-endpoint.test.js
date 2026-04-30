@@ -15,7 +15,7 @@ function fakeUpstream() {
 test('/v1/models advertises Claude Code selector and visible model', async () => {
   const upstream = await fakeUpstream();
   const env = { TEST_KEY: 'abc' };
-  const profile = { name: 'test', visible_model: 'claude-opus-4-7', client_model: 'opus', upstream: { base_url: upstream.url, model: 'gpt-5.5', api_key_env: 'TEST_KEY' }, capabilities: {} };
+  const profile = { name: 'test', visible_model: 'claude-opus-4-7', client_model: 'opus', upstream: { base_url: upstream.url, model: 'gpt-4.1', api_key_env: 'TEST_KEY' }, capabilities: {} };
   const proxy = await listenProxy(profile, { env, token: 'local' });
   try {
     const resp = await fetch(`${proxy.url}/v1/models`, { headers: { 'x-api-key': 'local' } });

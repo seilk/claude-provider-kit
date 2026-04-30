@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { anthropicToOpenAI, openAIToAnthropic, convertToolResultContent } from '../src/adapter.js';
 
-const profile = { visible_model: 'claude-opus-4-7', max_output_tokens: 64, upstream: { model: 'gpt-5.5' } };
+const profile = { visible_model: 'claude-opus-4-7', max_output_tokens: 64, upstream: { model: 'gpt-4.1' } };
 
 test('rewrites visible Claude model to upstream model', () => {
   const out = anthropicToOpenAI({ model: 'claude-opus-4-7', messages: [{ role: 'user', content: 'hi' }] }, profile);
-  assert.equal(out.model, 'gpt-5.5');
+  assert.equal(out.model, 'gpt-4.1');
   assert.deepEqual(out.messages, [{ role: 'user', content: 'hi' }]);
 });
 

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { configDir, profilePath, secretsPath, validateProfileName } from './paths.js';
 import { resolveProvider } from './providers.js';
 
-const SECRET_TEMPLATE = `# Put provider API keys here. Example:\n# LETSUR_API_KEY=sk-...\n`;
+const SECRET_TEMPLATE = `# Put provider API keys here. Example:\n# CUSTOM_PROVIDER_API_KEY=...\n`;
 
 export async function ensureDirs(env = process.env) {
   await fs.mkdir(path.join(configDir(env), 'profiles'), { recursive: true, mode: 0o700 });

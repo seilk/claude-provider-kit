@@ -1,19 +1,19 @@
 # Claude Provider Kit
 
-A local Anthropic-compatible proxy and profile manager for Claude Code. It helps you use custom upstream models while keeping Claude Code configuration reversible, observable, and safe.
+A local Anthropic-compatible proxy and profile manager for Claude Code. CPK is provider-agnostic: it lets Claude Code talk to custom upstream models through local, reversible, observable profiles.
 
 ## Status
 
-MVP. The first target is OpenAI-compatible `/v1/chat/completions` upstreams.
+MVP. The current transport targets providers that expose an OpenAI-compatible `/v1/chat/completions` API. Other custom-provider transports can be added behind the same profile/proxy shape.
 
 ## Prerequisites
 
 - Node.js 20+
 - npm
 - Claude Code CLI available as `claude`
-- An OpenAI-compatible provider endpoint and API key
+- A provider endpoint and API key, usually OpenAI-compatible Chat Completions
 
-## Quick start
+## Quick start with any OpenAI-compatible provider
 
 ```bash
 git clone https://github.com/seilk/claude-provider-kit.git
@@ -21,32 +21,51 @@ cd claude-provider-kit
 npm install -g .
 
 cpk init
-# Put LETSUR_API_KEY=... in ~/.config/claude-provider-kit/secrets.env
-cpk profile create letsur \
-  --provider letsur \
-  --model gpt-5.5 \
+# Put CUSTOM_PROVIDER_API_KEY=*** in ~/.config/claude-provider-kit/secrets.env
+cpk profile create my-provider-gpt-4.1 \
+  --base-url https://api.example.com/v1 \
+  --model gpt-4.1 \
+  --key-env CUSTOM_PROVIDER_API_KEY \
   --format yaml \
   --visible-model claude-opus-4-7
 
-cpk doctor letsur
-cpk route-test letsur --prompt 'Reply exactly CPK_ROUTE_OK'
-cpk run letsur -p 'Reply exactly OK' --max-turns 1
-cpk letsur --bare
+cpk doctor my-provider-gpt-4.1
+cpk route-test my-provider-gpt-4.1 --prompt 'Reply exactly CPK_ROUTE_OK'
+cpk my-provider-gpt-4.1
 ```
 
-`letsur` is only an example profile name. Any provider exposing OpenAI-compatible `/v1/chat/completions` can be used by changing `--base-url`, `--model`, and `--key-env`.
+`my-provider-gpt-4.1` is only an example profile name. Prefer profile names in the form `<provider>-<upstream-model>`, preserving provider-recognized model names when valid, for example `openrouter-gpt-4.1`, `gateway-gemini-3-flash-preview`, or `local-qwen3-coder`.
 
-For multiple models on the same provider, create separate profiles named from the provider-recognized upstream model string:
+For multiple models on the same provider, create one profile per upstream model:
 
 ```bash
-cpk profile create letsur-gpt-5.5 --provider letsur --model gpt-5.5 --format yaml
-cpk profile create letsur-gemini-3-flash-preview --provider letsur --model gemini-3-flash-preview --format yaml
+cpk profile create gateway-gpt-4.1 --base-url https://api.example.com/v1 --model gpt-4.1 --key-env CUSTOM_PROVIDER_API_KEY --format yaml
+cpk profile create gateway-gemini-3-flash-preview --base-url https://api.example.com/v1 --model gemini-3-flash-preview --key-env CUSTOM_PROVIDER_API_KEY --format yaml
 
-cpk letsur-gpt-5.5 --bare
-cpk letsur-gemini-3-flash-preview --bare
+cpk gateway-gpt-4.1
+cpk gateway-gemini-3-flash-preview
 ```
 
-The direct `cpk <profile>` form is native CPK behavior, not a shell alias. Claude Code flags are forwarded as-is, so `cpk letsur-gpt-5.5 --bare -p "hi"` works without the `--` separator. Prefer profile names in the form `<provider>-<upstream-model>`, preserving provider-recognized model names such as `gpt-5.5` or `gemini-3-flash-preview` for consistency.
+The direct `cpk <profile>` form is native CPK behavior, not a shell alias. Claude Code flags are forwarded as-is, so this works without a `--` separator:
+
+```bash
+cpk gateway-gpt-4.1 -p "hi" --max-turns 1
+```
+
+## Built-in provider presets
+
+`cpk providers` lists optional presets that fill in known base URLs, key env names, and capability defaults. Presets are convenience only; CPK does not require a preset.
+
+```bash
+cpk providers
+cpk profile create some-preset-model --provider <preset-id> --model <upstream-model> --format yaml
+```
+
+The generic path is always available:
+
+```bash
+cpk profile create <profile> --base-url <provider-v1-url> --model <upstream-model> --key-env <ENV_NAME>
+```
 
 ## What this changes on your machine
 
@@ -59,7 +78,7 @@ Creates local user files only:
 ~/.local/state/claude-provider-kit/events.jsonl
 ```
 
-`cpk run` creates a temporary Claude Code settings file for that process and points Claude Code at a local proxy. It does not require putting provider API keys in `~/.claude/settings.json`.
+`cpk run` and `cpk <profile>` create a temporary Claude Code settings file for that process and point Claude Code at a local proxy. They do not require putting provider API keys in `~/.claude/settings.json`.
 
 ## Commands
 
@@ -92,31 +111,31 @@ Profiles are plain files under:
 CPK reads either `.json`, `.yaml`, or `.yml` profiles. JSON is the default, but YAML is often nicer for hand-editing:
 
 ```bash
-cpk profile create letsur --provider letsur --model gpt-5.5 --format yaml
-cpk profile show letsur --format yaml
-cpk profile export letsur --format yaml --output letsur.yaml
-cpk profile import letsur.yaml --name letsur-copy --format json
+cpk profile create gateway-gpt-4.1 --base-url https://api.example.com/v1 --model gpt-4.1 --key-env CUSTOM_PROVIDER_API_KEY --format yaml
+cpk profile show gateway-gpt-4.1 --format yaml
+cpk profile export gateway-gpt-4.1 --format yaml --output gateway-gpt-4.1.yaml
+cpk profile import gateway-gpt-4.1.yaml --name gateway-gpt-4.1-copy --format json
 ```
 
 Example YAML profile:
 
 ```yaml
-name: letsur
-provider: letsur
+name: gateway-gpt-4.1
+provider: openai-compatible
 visible_model: claude-opus-4-7
 client_model: opus
-context_window: 1000000
+context_window: 200000
 max_output_tokens: 8192
 upstream:
   type: openai-chat-completions
-  base_url: https://gw.letsur.ai/v1
-  model: gpt-5.5
-  api_key_env: LETSUR_API_KEY
+  base_url: https://api.example.com/v1
+  model: gpt-4.1
+  api_key_env: CUSTOM_PROVIDER_API_KEY
 capabilities:
   streaming: true
   tools: true
   images: false
-  thinking: true
+  thinking: false
   prompt_cache: false
 retry:
   max_retries: 0
@@ -129,14 +148,14 @@ The built-in YAML reader intentionally supports a small safe subset: nested mapp
 
 ## Claude Code display behavior
 
-Claude Code owns the top welcome-box model/billing text. CPK does not try to rewrite that header. CPK's source of truth is the status line, which shows the real route, for example `CPK letsur-gpt-5.5 → gpt-5.5 as claude-opus-4-7`.
+Claude Code owns the top welcome-box model/billing text. CPK does not try to rewrite that header. CPK's source of truth is the status line, which shows the real route, for example `CPK gateway-gpt-4.1 → gpt-4.1 as claude-opus-4-7`.
 
 `cpk run` passes only `ANTHROPIC_AUTH_TOKEN` for the local proxy token, not `ANTHROPIC_API_KEY`, to avoid Claude Code's custom API-key confirmation prompt.
 
-To verify the interactive TUI path with tmux:
+To verify the interactive TUI path with tmux against any configured profile:
 
 ```bash
-npm run test:tui -- letsur-gpt-5.5
+npm run test:tui -- <profile>
 ```
 
 This launches a real Claude Code TUI in a temporary tmux session, checks that the CPK route statusline appears, sends a prompt, verifies the expected reply, writes the final capture to `/tmp`, and closes the tmux session.
@@ -183,7 +202,7 @@ cpk route-test <profile>
 cpk status
 ```
 
-The `upstream_model` in state/logs is the real provider model. Claude Code may still display the visible compatibility model.
+The `upstream_model` in state/logs is the real provider model. Claude Code may still display its client compatibility model.
 
 ### API key missing
 
@@ -208,4 +227,5 @@ CPK_BASE_STATUSLINE_COMMAND='<your original statusline command>'
 ```bash
 npm test
 npm run lint
+npm run test:tui -- <profile>   # optional live TUI test, requires tmux/claude/provider credentials
 ```

@@ -21,14 +21,14 @@ function fakeUpstream() {
 test('proxy routes messages and models by URL pathname, ignoring query string', async () => {
   const upstream = await fakeUpstream();
   const env = { TEST_KEY: 'abc' };
-  const profile = { name: 'test', visible_model: 'claude-opus-4-7', client_model: 'opus', max_output_tokens: 64, upstream: { base_url: upstream.url, model: 'gpt-5.5', api_key_env: 'TEST_KEY' }, capabilities: {} };
+  const profile = { name: 'test', visible_model: 'claude-opus-4-7', client_model: 'opus', max_output_tokens: 64, upstream: { base_url: upstream.url, model: 'gpt-4.1', api_key_env: 'TEST_KEY' }, capabilities: {} };
   const proxy = await listenProxy(profile, { env, token: 'local' });
   try {
     const models = await fetch(`${proxy.url}/v1/models?anthropic-version=2023-06-01`, { headers: { 'x-api-key': 'local' } });
     assert.equal(models.status, 200);
     const resp = await fetch(`${proxy.url}/v1/messages?anthropic-version=2023-06-01`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': 'local' }, body: JSON.stringify({ model: 'opus', messages: [{ role: 'user', content: 'hi' }] }) });
     assert.equal(resp.status, 200);
-    assert.equal(upstream.seen[0].model, 'gpt-5.5');
+    assert.equal(upstream.seen[0].model, 'gpt-4.1');
   } finally {
     proxy.server.close();
     upstream.server.close();

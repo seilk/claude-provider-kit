@@ -6,7 +6,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const profile = process.argv[2] || 'letsur-gpt-5.5';
+const profile = process.argv[2] || process.env.CPK_TUI_PROFILE;
+if (!profile) {
+  console.error('usage: npm run test:tui -- <profile>');
+  process.exit(2);
+}
 const expected = process.env.CPK_TUI_EXPECTED || 'CPK_TUI_SMOKE_OK';
 const session = `cpk_tui_smoke_${process.pid}`;
 const capturePath = path.join(os.tmpdir(), `${session}.txt`);
