@@ -1,0 +1,58 @@
+import { initConfig, writeProfile, listProfiles, readProfile } from './config.js';
+import { listenProxy } from './proxy.js';
+import { doctor, routeTest } from './doctor.js';
+import { readState } from './state.js';
+import { runClaude } from './launcher.js';
+import { statuslineMain } from './statusline.js';
+
+const help = `claude-provider-kit (cpk)
+
+Commands:
+  init
+  profile create <name> --base-url URL --model MODEL --key-env ENV [--visible-model MODEL]
+  profile list
+  profile show <name>
+  serve <profile> [--port PORT]
+  run <profile> [-- ...claude args]
+  doctor <profile>
+  route-test <profile> [--prompt TEXT]
+  status
+  statusline
+`;
+
+export async function main(argv) {
+  const [cmd, ...rest] = argv;
+  if (!cmd || cmd === '--help' || cmd === '-h') return console.log(help);
+  if (cmd === 'statusline') return statuslineMain();
+  if (cmd === 'init') { const r = await initConfig(); console.log(`Initialized ${r.configDir}`); return; }
+  if (cmd === 'profile') return profileCommand(rest);
+  if (cmd === 'serve') return serveCommand(rest);
+  if (cmd === 'run') return runCommand(rest);
+  if (cmd === 'doctor') return doctorCommand(rest);
+  if (cmd === 'route-test') return routeTestCommand(rest);
+  if (cmd === 'status') return statusCommand();
+  throw new Error(`unknown command: ${cmd}\n${help}`);
+}
+
+async function profileCommand(argv) {
+  const [sub, name, ...rest] = argv;
+  if (sub === 'list') { for (const p of await listProfiles()) console.log(p); return; }
+  if (sub === 'show') { console.log(JSON.stringify(await readProfile(name), null, 2)); return; }
+  if (sub !== 'create') throw new Error('usage: cpk profile create <name> --base-url URL --model MODEL --key-env ENV [--visible-model MODEL]');
+  const opts = parseFlags(rest);
+  const profile = await writeProfile({ name, visible_model: opts['visible-model'] || 'claude-opus-4-7', context_window: opts['context-window'] || 1000000, max_output_tokens: opts['max-output-tokens'] || 64000, upstream: { base_url: required(opts, 'base-url'), model: required(opts, 'model'), api_key_env: required(opts, 'key-env') }, capabilities: { streaming: true, tools: true } });
+  console.log(`Created profile ${profile.name}`);
+}
+
+async function serveCommand(argv) {
+  const [name, ...rest] = argv; if (!name) throw new Error('usage: cpk serve <profile> [--port PORT]');
+  const opts = parseFlags(rest); const profile = await readProfile(name);
+  const proxy = await listenProxy(profile, { port: opts.port || 0 });
+  console.log(`Serving ${name}: ${proxy.url} token=${proxy.token}`);
+}
+async function runCommand(argv) { const [name, ...args] = argv; if (!name) throw new Error('usage: cpk run <profile> [claude args]'); process.exitCode = await runClaude(name, args[0] === '--' ? args.slice(1) : args); }
+async function doctorCommand(argv) { const [name] = argv; for (const c of await doctor(name)) console.log(`${c.ok ? 'OK' : 'FAIL'} ${c.name}: ${c.detail}`); }
+async function routeTestCommand(argv) { const [name, ...rest] = argv; const opts = parseFlags(rest); console.log(JSON.stringify(await routeTest(name, opts.prompt), null, 2)); }
+async function statusCommand() { console.log(JSON.stringify(await readState().catch(() => ({ ok: false, message: 'no state yet' })), null, 2)); }
+function parseFlags(args) { const out = {}; for (let i=0;i<args.length;i++) { const a=args[i]; if (!a.startsWith('--')) continue; const k=a.slice(2); out[k] = args[i+1] && !args[i+1].startsWith('--') ? args[++i] : true; } return out; }
+function required(opts, key) { if (!opts[key]) throw new Error(`missing --${key}`); return opts[key]; }
