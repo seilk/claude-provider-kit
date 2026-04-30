@@ -19,7 +19,8 @@ Commands:
   profile import <file> [--name NAME] [--format json|yaml]
   providers
   serve <profile> [--port PORT] [--show-token]
-  run <profile> [-- ...claude args]
+  run <profile> [claude args]
+  <profile> [claude args]       Launch a profile directly, e.g. cpk letsur-gpt55 --bare
   doctor <profile>
   route-test <profile> [--prompt TEXT]
   status
@@ -38,7 +39,8 @@ export async function main(argv) {
   if (cmd === 'doctor') return doctorCommand(rest);
   if (cmd === 'route-test') return routeTestCommand(rest);
   if (cmd === 'status') return statusCommand();
-  throw new Error(`unknown command: ${cmd}\n${help}`);
+  if (!cmd.startsWith('-') && await profileExists(cmd)) return runCommand([cmd, ...rest]);
+  throw new Error(`unknown command or profile: ${cmd}\n${help}`);
 }
 
 async function profileCommand(argv) {
@@ -92,9 +94,11 @@ async function serveCommand(argv) {
   const proxy = await listenProxy(profile, { port: opts.port || 0 });
   console.log(`Serving ${name}: ${proxy.url}${opts['show-token'] ? ` token=${proxy.token}` : ' (token hidden; use --show-token if needed)'}`);
 }
-async function runCommand(argv) { const [name, ...args] = argv; if (!name) throw new Error('usage: cpk run <profile> [claude args]'); process.exitCode = await runClaude(name, args[0] === '--' ? args.slice(1) : args); }
+async function runCommand(argv) { const [name, ...args] = argv; if (!name) throw new Error('usage: cpk run <profile> [claude args]'); process.exitCode = await runClaude(name, normalizeClaudeArgs(args)); }
 async function doctorCommand(argv) { const [name] = argv; for (const c of await doctor(name)) console.log(`${c.ok ? 'OK' : 'FAIL'} ${c.name}: ${c.detail}`); }
 async function routeTestCommand(argv) { const [name, ...rest] = argv; const opts = parseFlags(rest, new Set(['prompt'])); console.log(JSON.stringify(await routeTest(name, opts.prompt), null, 2)); }
 async function statusCommand() { console.log(JSON.stringify(await readState().catch(() => ({ ok: false, message: 'no state yet' })), null, 2)); }
+async function profileExists(name) { return (await listProfiles()).includes(name); }
+function normalizeClaudeArgs(args) { return args[0] === '--' ? args.slice(1) : args; }
 function parseFlags(args, allowed = new Set()) { const out = {}; for (let i=0;i<args.length;i++) { const a=args[i]; if (!a.startsWith('--')) continue; const k=a.slice(2); if (allowed.size && !allowed.has(k)) throw new Error(`unknown flag --${k}`); out[k] = args[i+1] && !args[i+1].startsWith('--') ? args[++i] : true; } return out; }
 function required(opts, key) { if (!opts[key]) throw new Error(`missing --${key}`); return opts[key]; }

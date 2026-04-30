@@ -30,10 +30,23 @@ cpk profile create letsur \
 
 cpk doctor letsur
 cpk route-test letsur --prompt 'Reply exactly CPK_ROUTE_OK'
-cpk run letsur -- -p 'Reply exactly OK' --max-turns 1
+cpk run letsur -p 'Reply exactly OK' --max-turns 1
+cpk letsur --bare
 ```
 
 `letsur` is only an example profile name. Any provider exposing OpenAI-compatible `/v1/chat/completions` can be used by changing `--base-url`, `--model`, and `--key-env`.
+
+For multiple models on the same provider, create separate profiles and run them directly:
+
+```bash
+cpk profile create letsur-gpt55 --provider letsur --model gpt-5.5 --format yaml
+cpk profile create letsur-gemini3-flash --provider letsur --model gemini-3-flash-preview --format yaml
+
+cpk letsur-gpt55 --bare
+cpk letsur-gemini3-flash --bare
+```
+
+The direct `cpk <profile>` form is native CPK behavior, not a shell alias. Claude Code flags are forwarded as-is, so `cpk letsur-gpt55 --bare -p "hi"` works without the `--` separator.
 
 ## What this changes on your machine
 
@@ -60,6 +73,7 @@ cpk profile export          Export a profile as JSON or YAML
 cpk profile import          Import a profile from JSON or YAML
 cpk serve                   Start a local proxy for manual integration
 cpk run                     Launch Claude Code through a profile
+cpk <profile>               Launch a profile directly, forwarding Claude Code flags
 cpk doctor                  Validate profile/config basics
 cpk route-test              Send a real request through the local proxy
 cpk status                  Show last observed proxy state
