@@ -18,7 +18,7 @@ export async function renderStatusline(input, env = process.env) {
     if (depth > 2) return { stdout: '[cpk: statusline recursion]\n', stderr: '', status: 0 };
     const result = spawnSync('/bin/bash', ['-lc', base], { input: forwarded, encoding: 'utf8', env: { ...process.env, ...env, CPK_STATUSLINE_DEPTH: String(depth + 1) }, maxBuffer: 1024 * 1024, timeout: Number(env.CPK_STATUSLINE_TIMEOUT_MS || 1000) });
     if (result.error) return { stdout: `[cpk: statusline ${result.error.code || 'error'}]\n`, stderr: '', status: 0 };
-    return { stdout: result.stdout || '', stderr: result.stderr || '', status: result.status ?? 0 };
+    return { stdout: mergeStatusline(display, result.stdout), stderr: result.stderr || '', status: result.status ?? 0 };
   }
   const model = display || 'cpk: no route observed';
   return { stdout: `[${model}]\n`, stderr: '', status: 0 };
@@ -31,6 +31,16 @@ async function observedModel(env) {
   } catch { return ''; }
 }
 function truncate(value) { return stripControls(String(value || '')).slice(0, 80); }
+
+function mergeStatusline(display, baseOutput = '') {
+  const cleanDisplay = stripControls(String(display || '')).trim();
+  const firstLine = String(baseOutput || '').split(/\r?\n/)[0].trim();
+  if (!cleanDisplay) return firstLine ? `${firstLine}\n` : '';
+  const prefix = `[${cleanDisplay}]`;
+  const cleanFirstLine = stripControls(firstLine).trim();
+  if (!cleanFirstLine || cleanFirstLine === cleanDisplay || cleanFirstLine === prefix) return `${prefix}\n`;
+  return `${prefix} ${firstLine}\n`;
+}
 
 export async function statuslineMain() {
   let input = '';

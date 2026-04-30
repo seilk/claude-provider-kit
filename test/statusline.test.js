@@ -2,10 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { renderStatusline } from '../src/statusline.js';
 
-test('statusline overrides model before calling base command', async () => {
+test('statusline prefixes CPK route before base command output', async () => {
+  const base = `printf 'base widgets'`;
+  const out = await renderStatusline('{}', { CPK_DISPLAY_MODEL: 'CPK gateway → gpt-4.1 as claude-opus-4-7', CPK_BASE_STATUSLINE_COMMAND: base });
+  assert.equal(out.stdout.trim(), '[CPK gateway → gpt-4.1 as claude-opus-4-7] base widgets');
+});
+
+test('statusline avoids duplicating route when base echoes rewritten model', async () => {
   const base = `node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>console.log(JSON.parse(s).model.display_name))'`;
   const out = await renderStatusline(JSON.stringify({ model: { display_name: 'Opus 4.7' } }), { CPK_DISPLAY_MODEL: 'CPK gateway → gpt-4.1 as claude-opus-4-7', CPK_BASE_STATUSLINE_COMMAND: base });
-  assert.equal(out.stdout.trim(), 'CPK gateway → gpt-4.1 as claude-opus-4-7');
+  assert.equal(out.stdout.trim(), '[CPK gateway → gpt-4.1 as claude-opus-4-7]');
 });
 
 test('statusline default output includes cpk route display', async () => {
