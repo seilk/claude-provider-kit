@@ -23,7 +23,7 @@ export async function runClaude(profileName, args = [], options = {}) {
 }
 
 export function buildClaudeSettings(profile, proxy, env = process.env) {
-  const statuslineScript = new URL('./cli.js', import.meta.url).pathname;
+  const statuslineScript = new URL('../bin/cpk.js', import.meta.url).pathname;
   const baseStatus = env.CPK_BASE_STATUSLINE_COMMAND || env.CCS_BASE_STATUSLINE_COMMAND || '';
   const claudeModelSelector = env.CPK_CLAUDE_MODEL_SELECTOR || profile.client_model || 'opus';
   const routeDisplay = routeLabel(profile);
@@ -37,7 +37,6 @@ export function buildClaudeSettings(profile, proxy, env = process.env) {
       CPK_BASE_STATUSLINE_COMMAND: baseStatus
     },
     model: claudeModelSelector,
-    sessionName: routeDisplay,
     settings: {
       autoCompactWindow: profile.context_window,
       statusLine: { type: 'command', command: `node ${shellQuote(statuslineScript)} statusline`, padding: 0 }
@@ -46,21 +45,11 @@ export function buildClaudeSettings(profile, proxy, env = process.env) {
 }
 
 export function buildClaudeArgs(settingsPath, generated, userArgs = []) {
-  const args = ['--setting-sources', 'project,local', '--settings', settingsPath, '--model', generated.model];
-  if (!hasNameArg(userArgs)) args.push('--name', generated.sessionName);
-  return [...args, ...userArgs];
+  return ['--setting-sources', 'project,local', '--settings', settingsPath, '--model', generated.model, ...userArgs];
 }
 
 function routeLabel(profile) {
   const upstream = profile.upstream?.model || 'upstream';
   const visible = profile.visible_model || profile.client_model || 'claude';
   return `CPK ${profile.name} → ${upstream} as ${visible}`;
-}
-
-function hasNameArg(args) {
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = String(args[i]);
-    if (arg === '-n' || arg === '--name' || arg.startsWith('--name=')) return true;
-  }
-  return false;
 }

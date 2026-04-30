@@ -52,11 +52,8 @@ async function waitFor(predicate, label, timeoutMs = 30000) {
   throw new Error(`timed out waiting for ${label}; capture saved to ${capturePath}`);
 }
 
-function assertScreen(screen, needle, label = needle) {
-  if (!screen.includes(needle)) {
-    fs.writeFileSync(capturePath, screen);
-    throw new Error(`missing ${label}; capture saved to ${capturePath}`);
-  }
+function hasRouteStatusline(screen, routePrefix) {
+  return screen.split('\n').some((line) => line.trimStart().startsWith(`[${routePrefix}`));
 }
 
 function occurrenceCount(text, needle) {
@@ -73,16 +70,22 @@ try {
   if (start.status !== 0) throw new Error(start.stderr || start.stdout || 'failed to start tmux session');
 
   const routePrefix = `CPK ${profile} →`;
-  const initial = await waitFor((screen) => screen.includes(routePrefix) || screen.includes('custom API key'), 'CPK statusline');
+  const initial = await waitFor((screen) => hasRouteStatusline(screen, routePrefix) || screen.includes('custom API key'), 'CPK statusline');
   if (initial.includes('custom API key')) {
     fs.writeFileSync(capturePath, initial);
     throw new Error(`Claude Code showed custom API key prompt; capture saved to ${capturePath}`);
   }
-  assertScreen(initial, routePrefix, 'CPK route statusline');
+  if (!hasRouteStatusline(initial, routePrefix)) {
+    fs.writeFileSync(capturePath, initial);
+    throw new Error(`CPK route text was not rendered in the bottom statusline; capture saved to ${capturePath}`);
+  }
 
   run('tmux', ['send-keys', '-t', session, `Reply exactly ${expected}`, 'Enter']);
   const finalScreen = await waitFor((screen) => occurrenceCount(screen, expected) >= 2, 'assistant reply', 60000);
-  assertScreen(finalScreen, routePrefix, 'CPK route statusline after reply');
+  if (!hasRouteStatusline(finalScreen, routePrefix)) {
+    fs.writeFileSync(capturePath, finalScreen);
+    throw new Error(`CPK route text disappeared from the bottom statusline after reply; capture saved to ${capturePath}`);
+  }
   if (occurrenceCount(finalScreen, expected) < 2) {
     fs.writeFileSync(capturePath, finalScreen);
     throw new Error(`expected assistant reply not observed; capture saved to ${capturePath}`);

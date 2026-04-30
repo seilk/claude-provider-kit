@@ -16,15 +16,16 @@ test('launcher separates Claude settings from process env and route display', ()
   assert.equal(settings.env.ANTHROPIC_MODEL, 'opus');
   assert.equal(settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL, undefined);
   assert.equal(settings.env.CPK_DISPLAY_MODEL, 'CPK gateway → gpt-4.1 as claude-opus-4-7');
-  assert.equal(settings.sessionName, 'CPK gateway → gpt-4.1 as claude-opus-4-7');
+  assert.equal(settings.sessionName, undefined);
   assert.deepEqual(Object.keys(settings.settings).sort(), ['autoCompactWindow', 'statusLine']);
   assert.equal(settings.settings.statusLine.padding, 0);
+  assert.match(settings.settings.statusLine.command, /bin\/cpk\.js' statusline$/);
   assert.equal(JSON.stringify(settings.settings).includes('ANTHROPIC_AUTH_TOKEN'), false);
 });
 
-test('launcher injects route display name unless user supplied one', () => {
-  const generated = { model: 'opus', sessionName: 'CPK gateway → gpt-4.1 as claude-opus-4-7' };
-  assert.deepEqual(buildClaudeArgs('/tmp/settings.json', generated, ['-p', 'hi']), ['--setting-sources', 'project,local', '--settings', '/tmp/settings.json', '--model', 'opus', '--name', generated.sessionName, '-p', 'hi']);
+test('launcher does not hijack Claude Code session name', () => {
+  const generated = { model: 'opus' };
+  assert.deepEqual(buildClaudeArgs('/tmp/settings.json', generated, ['-p', 'hi']), ['--setting-sources', 'project,local', '--settings', '/tmp/settings.json', '--model', 'opus', '-p', 'hi']);
   assert.deepEqual(buildClaudeArgs('/tmp/settings.json', generated, ['--name', 'mine']), ['--setting-sources', 'project,local', '--settings', '/tmp/settings.json', '--model', 'opus', '--name', 'mine']);
   assert.deepEqual(buildClaudeArgs('/tmp/settings.json', generated, ['--name=mine']), ['--setting-sources', 'project,local', '--settings', '/tmp/settings.json', '--model', 'opus', '--name=mine']);
 });
