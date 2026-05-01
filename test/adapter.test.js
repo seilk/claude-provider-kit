@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { anthropicToOpenAI, openAIToAnthropic, convertToolResultContent } from '../src/adapter.js';
+import { Readable } from 'node:stream';
+import { anthropicToOpenAI, openAIToAnthropic, openAIStreamToAnthropic, convertToolResultContent } from '../src/adapter.js';
 
 const profile = { visible_model: 'claude-opus-4-7', max_output_tokens: 64, upstream: { model: 'gpt-4.1' } };
 
@@ -10,8 +11,66 @@ test('rewrites visible Claude model to upstream model', () => {
   assert.deepEqual(out.messages, [{ role: 'user', content: 'hi' }]);
 });
 
+test('forwards Claude Code tool definitions to OpenAI-compatible upstream', () => {
+  const out = anthropicToOpenAI({
+    model: 'claude-opus-4-7',
+    messages: [{ role: 'user', content: 'edit the file' }],
+    tools: [
+      {
+        name: 'Read',
+        description: 'Read a file from disk',
+        input_schema: {
+          type: 'object',
+          properties: { file_path: { type: 'string' } },
+          required: ['file_path']
+        }
+      },
+      {
+        name: 'Bash',
+        description: 'Run a shell command',
+        input_schema: {
+          type: 'object',
+          properties: { command: { type: 'string' } },
+          required: ['command']
+        }
+      }
+    ],
+    tool_choice: { type: 'auto' }
+  }, profile);
+
+  assert.equal(out.tool_choice, 'auto');
+  assert.deepEqual(out.tools, [
+    {
+      type: 'function',
+      function: {
+        name: 'Read',
+        description: 'Read a file from disk',
+        parameters: { type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'] }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'Bash',
+        description: 'Run a shell command',
+        parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] }
+      }
+    }
+  ]);
+});
+
+test('maps Anthropic forced tool_choice to OpenAI-compatible function choice', () => {
+  const out = anthropicToOpenAI({
+    model: 'claude-opus-4-7',
+    messages: [{ role: 'user', content: 'read' }],
+    tools: [{ name: 'Read', input_schema: { type: 'object', properties: {} } }],
+    tool_choice: { type: 'tool', name: 'Read' }
+  }, profile);
+  assert.deepEqual(out.tool_choice, { type: 'function', function: { name: 'Read' } });
+});
+
 test('redacts tool_result image URLs', () => {
-  const text = convertToolResultContent([{ type: 'text', text: 'saw' }, { type: 'image', source: { type: 'url', url: 'https://secret.example/signed?token=abc' } }]);
+  const text = convertToolResultContent([{ type: 'text', text: 'saw' }, { type: 'image', source: { type: 'url', url: 'https://secret.example/signed?token=***' } }]);
   assert.equal(text, 'saw\n[tool_result image omitted: url image payload]');
   assert(!text.includes('secret.example'));
   assert(!text.includes('token'));
@@ -21,4 +80,31 @@ test('maps OpenAI response to visible Claude model', () => {
   const out = openAIToAnthropic({ choices: [{ message: { content: 'OK' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 2 } }, profile);
   assert.equal(out.model, 'claude-opus-4-7');
   assert.equal(out.content[0].text, 'OK');
+});
+
+test('maps non-stream OpenAI tool_calls to Anthropic tool_use blocks', () => {
+  const out = openAIToAnthropic({
+    choices: [{
+      message: { tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'Read', arguments: '{"file_path":"README.md"}' } }] },
+      finish_reason: 'tool_calls'
+    }],
+    usage: { prompt_tokens: 10, completion_tokens: 5 }
+  }, profile);
+  assert.equal(out.stop_reason, 'tool_use');
+  assert.deepEqual(out.content, [{ type: 'tool_use', id: 'call_1', name: 'Read', input: { file_path: 'README.md' } }]);
+});
+
+test('maps streamed OpenAI tool_calls to Anthropic tool_use SSE events', async () => {
+  const stream = Readable.from([
+    Buffer.from('data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"Bash","arguments":"{\\"command\\":"}}]}}]}\n\n'),
+    Buffer.from('data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"pwd\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n'),
+    Buffer.from('data: [DONE]\n\n')
+  ]);
+  const events = [];
+  for await (const event of openAIStreamToAnthropic(stream, profile)) events.push(event);
+  const joined = events.join('');
+  assert.match(joined, /event: content_block_start\ndata: \{"type":"content_block_start","index":0,"content_block":\{"type":"tool_use","id":"call_1","name":"Bash","input":\{\}\}\}/);
+  assert.match(joined, /"type":"input_json_delta","partial_json":"\{\\\"command\\\":"/);
+  assert.match(joined, /"type":"input_json_delta","partial_json":"\\\"pwd\\\"\}"/);
+  assert.match(joined, /"stop_reason":"tool_use"/);
 });

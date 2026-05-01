@@ -9,6 +9,7 @@
   "scripts": {
     "test": "node --test",
     "test:tui": "node scripts/tui-smoke.mjs",
+    "test:tools": "node scripts/tool-smoke.mjs",
     "lint": "node --check bin/cpk.js && find src test scripts \\( -name '*.js' -o -name '*.mjs' \\) -print0 | xargs -0 -n1 node --check",
     "smoke": "node bin/cpk.js --help >/dev/null && npm test"
   },

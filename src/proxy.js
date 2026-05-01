@@ -35,7 +35,7 @@ export async function createProxy(profile, options = {}) {
       const anthropic = JSON.parse(raw || '{}');
       const upstreamBody = anthropicToOpenAI(anthropic, profile);
       requestId = `cpk_${crypto.randomUUID()}`;
-      await writeState({ attempted_request_id: requestId, active_profile: profile.name, visible_model: profile.visible_model, attempted_upstream_model: profile.upstream.model, proxy_url: `http://${host}:${server.address().port}` }, env);
+      await writeState({ attempted_request_id: requestId, active_profile: profile.name, visible_model: profile.visible_model, attempted_upstream_model: profile.upstream.model, proxy_url: currentProxyUrl(host, server) }, env);
       await logEvent('request.forward', { request_id: requestId, profile: profile.name, visible_model: profile.visible_model, upstream_model: profile.upstream.model, upstream_base_url: profile.upstream.base_url }, env);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -47,7 +47,7 @@ export async function createProxy(profile, options = {}) {
       }
       await logEvent('response.received', { request_id: requestId, status: upstream.status, upstream_model: profile.upstream.model }, env);
       if (!upstream.ok) return pipeError(res, upstream);
-      await writeState({ last_successful_request_id: requestId, active_profile: profile.name, visible_model: profile.visible_model, upstream_model: profile.upstream.model, upstream_base_url: profile.upstream.base_url, proxy_url: `http://${host}:${server.address().port}`, last_success_at: new Date().toISOString() }, env);
+      await writeState({ last_successful_request_id: requestId, active_profile: profile.name, visible_model: profile.visible_model, upstream_model: profile.upstream.model, upstream_base_url: profile.upstream.base_url, proxy_url: currentProxyUrl(host, server), last_success_at: new Date().toISOString() }, env);
       if (upstreamBody.stream) {
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
         for await (const event of openAIStreamToAnthropic(upstream.body, profile)) res.write(event);
@@ -106,6 +106,7 @@ function modelList(profile) {
   return [...new Set([profile.client_model || 'opus', profile.visible_model].filter(Boolean))];
 }
 
+function currentProxyUrl(host, server) { const address = server.address(); return address?.port ? `http://${host}:${address.port}` : undefined; }
 function validAuth(req, token) {
   const candidates = [req.headers['x-api-key'], req.headers['anthropic-api-key'], req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : req.headers.authorization].filter(Boolean);
   return candidates.some((candidate) => safeEqual(String(candidate), token));

@@ -10,8 +10,32 @@ export function anthropicToOpenAI(body, profile) {
     messages,
     stream: body.stream === true,
     max_tokens: Number(body.max_tokens || profile.max_output_tokens || 8192),
-    ...(body.temperature === undefined ? {} : { temperature: body.temperature })
+    ...(body.temperature === undefined ? {} : { temperature: body.temperature }),
+    ...convertTools(body),
+    ...convertToolChoice(body.tool_choice)
   };
+}
+
+function convertTools(body) {
+  if (!Array.isArray(body.tools) || body.tools.length === 0) return {};
+  return {
+    tools: body.tools.map((tool) => ({
+      type: 'function',
+      function: {
+        name: String(tool.name || 'tool'),
+        ...(tool.description ? { description: String(tool.description) } : {}),
+        parameters: tool.input_schema || { type: 'object', properties: {} }
+      }
+    }))
+  };
+}
+
+function convertToolChoice(choice) {
+  if (!choice || typeof choice !== 'object') return {};
+  if (choice.type === 'auto') return { tool_choice: 'auto' };
+  if (choice.type === 'any') return { tool_choice: 'required' };
+  if (choice.type === 'tool' && choice.name) return { tool_choice: { type: 'function', function: { name: String(choice.name) } } };
+  return {};
 }
 
 function convertMessage(message) {
@@ -75,8 +99,14 @@ export function openAIToAnthropic(data, profile) {
 export async function* openAIStreamToAnthropic(stream, profile) {
   const decoder = new TextDecoder();
   let buffer = '';
+  let nextIndex = 0;
+  let textIndex = null;
+  const openBlocks = [];
+  const toolBlocks = new Map();
+  let finalFinishReason = 'stop';
+
   yield sse('message_start', { type: 'message_start', message: { id: `cpk_${Date.now()}`, type: 'message', role: 'assistant', model: profile.visible_model, content: [], stop_reason: null, usage: { input_tokens: 0, output_tokens: 0 } } });
-  yield sse('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
+
   for await (const chunk of stream) {
     buffer += decoder.decode(chunk, { stream: true });
     let idx;
@@ -86,15 +116,48 @@ export async function* openAIStreamToAnthropic(stream, profile) {
       if (!line.startsWith('data:')) continue;
       const payload = line.slice(5).trim();
       if (payload === '[DONE]') continue;
-      try {
-        const data = JSON.parse(payload);
-        const text = data.choices?.[0]?.delta?.content;
-        if (text) yield sse('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } });
-      } catch {}
+      let data;
+      try { data = JSON.parse(payload); } catch { continue; }
+      const choice = data.choices?.[0] || {};
+      const delta = choice.delta || {};
+      if (choice.finish_reason) finalFinishReason = choice.finish_reason;
+
+      if (delta.content) {
+        if (textIndex === null) {
+          textIndex = nextIndex++;
+          openBlocks.push(textIndex);
+          yield sse('content_block_start', { type: 'content_block_start', index: textIndex, content_block: { type: 'text', text: '' } });
+        }
+        yield sse('content_block_delta', { type: 'content_block_delta', index: textIndex, delta: { type: 'text_delta', text: String(delta.content) } });
+      }
+
+      if (Array.isArray(delta.tool_calls)) {
+        for (const call of delta.tool_calls) {
+          const key = Number.isInteger(call.index) ? call.index : toolBlocks.size;
+          let block = toolBlocks.get(key);
+          if (!block) {
+            block = { index: nextIndex++, id: call.id || `call_${key}`, name: call.function?.name || 'tool' };
+            toolBlocks.set(key, block);
+            openBlocks.push(block.index);
+            yield sse('content_block_start', { type: 'content_block_start', index: block.index, content_block: { type: 'tool_use', id: block.id, name: block.name, input: {} } });
+          } else {
+            if (call.id) block.id = call.id;
+            if (call.function?.name) block.name = call.function.name;
+          }
+          const partial = call.function?.arguments;
+          if (partial) yield sse('content_block_delta', { type: 'content_block_delta', index: block.index, delta: { type: 'input_json_delta', partial_json: String(partial) } });
+        }
+      }
     }
   }
-  yield sse('content_block_stop', { type: 'content_block_stop', index: 0 });
-  yield sse('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 0 } });
+
+  if (openBlocks.length === 0) {
+    textIndex = nextIndex++;
+    openBlocks.push(textIndex);
+    yield sse('content_block_start', { type: 'content_block_start', index: textIndex, content_block: { type: 'text', text: '' } });
+  }
+  for (const index of openBlocks) yield sse('content_block_stop', { type: 'content_block_stop', index });
+  yield sse('message_delta', { type: 'message_delta', delta: { stop_reason: finalFinishReason === 'tool_calls' ? 'tool_use' : finalFinishReason === 'length' ? 'max_tokens' : 'end_turn' }, usage: { output_tokens: 0 } });
   yield sse('message_stop', { type: 'message_stop' });
 }
 
