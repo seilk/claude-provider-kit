@@ -28,15 +28,22 @@ test('launcher separates Claude settings from process env and route display', ()
 
 test('launcher does not hijack Claude Code session name', () => {
   const generated = { model: 'opus' };
-  assert.deepEqual(buildClaudeArgs('/tmp/settings.json', generated, ['-p', 'hi']), ['--setting-sources', 'project,local', '--settings', '/tmp/settings.json', '--model', 'opus', '-p', 'hi']);
-  assert.deepEqual(buildClaudeArgs('/tmp/settings.json', generated, ['--name', 'mine']), ['--setting-sources', 'project,local', '--settings', '/tmp/settings.json', '--model', 'opus', '--name', 'mine']);
-  assert.deepEqual(buildClaudeArgs('/tmp/settings.json', generated, ['--name=mine']), ['--setting-sources', 'project,local', '--settings', '/tmp/settings.json', '--model', 'opus', '--name=mine']);
+  assert.deepEqual(buildClaudeArgs('/tmp/settings.json', generated, ['-p', 'hi']), ['--setting-sources', 'user,project,local', '--settings', '/tmp/settings.json', '--model', 'opus', '-p', 'hi']);
+  assert.deepEqual(buildClaudeArgs('/tmp/settings.json', generated, ['--name', 'mine']), ['--setting-sources', 'user,project,local', '--settings', '/tmp/settings.json', '--model', 'opus', '--name', 'mine']);
+  assert.deepEqual(buildClaudeArgs('/tmp/settings.json', generated, ['--name=mine']), ['--setting-sources', 'user,project,local', '--settings', '/tmp/settings.json', '--model', 'opus', '--name=mine']);
+});
+
+test('launcher includes user setting source so ~/.claude skills and slash commands remain available', () => {
+  const args = buildClaudeArgs('/tmp/settings.json', { model: 'opus' }, []);
+  const index = args.indexOf('--setting-sources');
+  assert.notEqual(index, -1);
+  assert.equal(args[index + 1], 'user,project,local');
 });
 
 test('launcher uses only per-run settings and does not target persistent Claude settings', () => {
   const generated = { model: 'opus' };
   const args = buildClaudeArgs('/tmp/cgb-claude-abc/settings.json', generated, []);
-  assert.deepEqual(args.slice(0, 6), ['--setting-sources', 'project,local', '--settings', '/tmp/cgb-claude-abc/settings.json', '--model', 'opus']);
+  assert.deepEqual(args.slice(0, 6), ['--setting-sources', 'user,project,local', '--settings', '/tmp/cgb-claude-abc/settings.json', '--model', 'opus']);
   assert.equal(args.some((arg) => String(arg).includes('/.claude/settings')), false);
   assert.equal(args.some((arg) => String(arg).includes('.claude/settings')), false);
 });

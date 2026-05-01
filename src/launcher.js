@@ -46,7 +46,7 @@ export function buildClaudeSettings(profile, proxy, env = process.env, options =
 }
 
 export function buildClaudeArgs(settingsPath, generated, userArgs = []) {
-  return ['--setting-sources', 'project,local', '--settings', settingsPath, '--model', generated.model, ...userArgs];
+  return ['--setting-sources', 'user,project,local', '--settings', settingsPath, '--model', generated.model, ...userArgs];
 }
 
 export async function readUserStatusLineCommand(env = process.env) {
