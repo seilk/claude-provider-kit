@@ -90,3 +90,16 @@ test('statusline falls back to transcript usage when Claude context_window has n
   const out = await renderStatusline(input, { CGB_DISPLAY_MODEL: 'CGB gateway → gpt-5.5 as claude-opus-4-7', CGB_BASE_STATUSLINE_COMMAND: base });
   assert.equal(out.stdout.trim(), '[CGB gateway → gpt-5.5 as claude-opus-4-7] [Opus 4.7] │ repo\nContext █░░░░░░░░░ 3% 30.1k/1M');
 });
+
+test('statusline does not combine inconsistent reported percentage with cumulative token counts', async () => {
+  const input = JSON.stringify({ context_window: { total_input_tokens: 683700, total_output_tokens: 0, context_window_size: 1000000, used_percentage: 12 } });
+  const base = `printf '[Opus 4.7] │ llmwiki\\nContext ░░░░░░░░░░ 0%%'`;
+  const out = await renderStatusline(input, { CGB_DISPLAY_MODEL: 'CGB letsur-gpt-5.5 → gpt-5.5 as claude-opus-4-7', CGB_BASE_STATUSLINE_COMMAND: base });
+  assert.equal(out.stdout.trim(), '[CGB letsur-gpt-5.5 → gpt-5.5 as claude-opus-4-7] [Opus 4.7] │ llmwiki\nContext █░░░░░░░░░ 12% reported');
+});
+
+test('statusline computes percentage from tokens only when no reported percentage is available', async () => {
+  const input = JSON.stringify({ context_window: { total_input_tokens: 683700, total_output_tokens: 0, context_window_size: 1000000, used_percentage: null } });
+  const out = await renderStatusline(input, { CGB_DISPLAY_MODEL: 'CGB gateway → gpt-5.5 as claude-opus-4-7' });
+  assert.equal(out.stdout.trim(), '[CGB gateway → gpt-5.5 as claude-opus-4-7] ctx 68.4% 683.7k/1M');
+});

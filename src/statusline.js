@@ -138,16 +138,32 @@ async function latestTranscriptUsage(transcriptPath) {
 
 function renderContextSegment(context) {
   if (!context || typeof context !== 'object') return '';
-  const pct = numeric(context.used_percentage ?? context.current_usage);
+  const reportedPct = numeric(context.used_percentage ?? context.current_usage);
   const inputTokens = numeric(context.total_input_tokens);
   const outputTokens = numeric(context.total_output_tokens);
   const windowSize = numeric(context.context_window_size);
-  const usedTokens = inputTokens + outputTokens;
-  const usedPct = Number.isFinite(pct) ? pct : (windowSize > 0 ? (usedTokens / windowSize) * 100 : NaN);
-  if (!Number.isFinite(usedPct) && !usedTokens && !windowSize) return '';
+  const usedTokens = safeTokenSum(inputTokens, outputTokens);
+  const tokenPct = Number.isFinite(usedTokens) && windowSize > 0 ? (usedTokens / windowSize) * 100 : NaN;
+  const usedPct = Number.isFinite(reportedPct) ? reportedPct : tokenPct;
+  if (!Number.isFinite(usedPct) && !Number.isFinite(usedTokens) && !windowSize) return '';
   const pctText = Number.isFinite(usedPct) ? `${Math.max(0, Math.min(100, usedPct)).toFixed(1).replace(/\.0$/, '')}%` : '?%';
-  const tokensText = windowSize ? `${formatTokens(usedTokens)}/${formatTokens(windowSize)}` : '';
-  return tokensText ? `ctx ${pctText} ${tokensText}` : `ctx ${pctText}`;
+  const canTrustTokenFraction = Number.isFinite(tokenPct) && (!Number.isFinite(reportedPct) || percentagesAgree(reportedPct, tokenPct));
+  const tokensText = canTrustTokenFraction && windowSize ? `${formatTokens(usedTokens)}/${formatTokens(windowSize)}` : '';
+  const sourceText = Number.isFinite(reportedPct) && !canTrustTokenFraction ? 'reported' : '';
+  const detail = tokensText || sourceText;
+  return detail ? `ctx ${pctText} ${detail}` : `ctx ${pctText}`;
+}
+
+function safeTokenSum(inputTokens, outputTokens) {
+  const input = Number.isFinite(inputTokens) ? inputTokens : 0;
+  const output = Number.isFinite(outputTokens) ? outputTokens : 0;
+  const hasAny = Number.isFinite(inputTokens) || Number.isFinite(outputTokens);
+  return hasAny ? input + output : NaN;
+}
+
+function percentagesAgree(a, b) {
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return Math.abs(a - b) <= Math.max(2, Math.abs(a) * 0.1);
 }
 
 function numeric(value) {
