@@ -14,6 +14,7 @@ if (!profile) {
 const expected = process.env.CGB_TUI_EXPECTED || 'CGB_TUI_SMOKE_OK';
 const session = `cgb_tui_smoke_${process.pid}`;
 const capturePath = path.join(os.tmpdir(), `${session}.txt`);
+const debugPath = path.join(os.tmpdir(), `${session}.debug.log`);
 const cgbBin = path.join(repoRoot, 'bin', 'cgb.js');
 
 function run(command, args, options = {}) {
@@ -87,7 +88,7 @@ try {
   requireCommand('claude');
   run('tmux', ['kill-session', '-t', session]);
 
-  const launch = `${shellQuote(process.execPath)} ${shellQuote(cgbBin)} ${shellQuote(profile)}`;
+  const launch = `CGB_SKIP_PREFLIGHT=1 ${shellQuote(process.execPath)} ${shellQuote(cgbBin)} ${shellQuote(profile)} --debug-file ${shellQuote(debugPath)}`;
   const start = run('tmux', ['new-session', '-d', '-s', session, '-x', '160', '-y', '44', `cd ${shellQuote(repoRoot)} && ${launch}`]);
   if (start.status !== 0) throw new Error(start.stderr || start.stdout || 'failed to start tmux session');
 
@@ -106,25 +107,37 @@ try {
     fs.writeFileSync(capturePath, initial);
     throw new Error(`CGB statusline did not preserve context window usage; capture saved to ${capturePath}`);
   }
+  const initialDebug = fs.existsSync(debugPath) ? fs.readFileSync(debugPath, 'utf8') : '';
+  if (!/StatusLine \[.*bin\/cgb\.js.*statusline/.test(initialDebug)) {
+    fs.writeFileSync(capturePath, initial);
+    throw new Error(`Claude Code did not execute CGB statusline command; debug saved to ${debugPath}; capture saved to ${capturePath}`);
+  }
+  if (process.env.CGB_TUI_STATUSLINE_ONLY === '1') {
+    fs.writeFileSync(capturePath, initial);
+    console.log(`TUI statusline smoke passed for ${profile}`);
+    console.log(`Capture: ${capturePath}`);
+    console.log(`Debug: ${debugPath}`);
+  } else {
+    run('tmux', ['send-keys', '-t', session, `Reply exactly ${expected}`, 'Enter']);
+    const finalScreen = await waitFor((screen) => occurrenceCount(screen, expected) >= 2, 'assistant reply', 60000);
+    if (!hasRouteStatusline(finalScreen, routePrefix)) {
+      fs.writeFileSync(capturePath, finalScreen);
+      throw new Error(`CGB route text disappeared from the bottom statusline after reply; capture saved to ${capturePath}`);
+    }
+    if (!hasContextSegment(finalScreen, routePrefix)) {
+      fs.writeFileSync(capturePath, finalScreen);
+      throw new Error(`CGB context window usage disappeared after reply; capture saved to ${capturePath}`);
+    }
+    if (occurrenceCount(finalScreen, expected) < 2) {
+      fs.writeFileSync(capturePath, finalScreen);
+      throw new Error(`expected assistant reply not observed; capture saved to ${capturePath}`);
+    }
 
-  run('tmux', ['send-keys', '-t', session, `Reply exactly ${expected}`, 'Enter']);
-  const finalScreen = await waitFor((screen) => occurrenceCount(screen, expected) >= 2, 'assistant reply', 60000);
-  if (!hasRouteStatusline(finalScreen, routePrefix)) {
     fs.writeFileSync(capturePath, finalScreen);
-    throw new Error(`CGB route text disappeared from the bottom statusline after reply; capture saved to ${capturePath}`);
+    console.log(`TUI smoke passed for ${profile}`);
+    console.log(`Capture: ${capturePath}`);
+    console.log(`Debug: ${debugPath}`);
   }
-  if (!hasContextSegment(finalScreen, routePrefix)) {
-    fs.writeFileSync(capturePath, finalScreen);
-    throw new Error(`CGB context window usage disappeared after reply; capture saved to ${capturePath}`);
-  }
-  if (occurrenceCount(finalScreen, expected) < 2) {
-    fs.writeFileSync(capturePath, finalScreen);
-    throw new Error(`expected assistant reply not observed; capture saved to ${capturePath}`);
-  }
-
-  fs.writeFileSync(capturePath, finalScreen);
-  console.log(`TUI smoke passed for ${profile}`);
-  console.log(`Capture: ${capturePath}`);
 } finally {
   run('tmux', ['kill-session', '-t', session]);
 }

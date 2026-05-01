@@ -8,6 +8,23 @@ import { redact } from './redact.js';
 const MAX_BODY_BYTES = 10_000_000;
 const DEFAULT_TIMEOUT_MS = 120_000;
 
+export async function preflightUpstream(profile, env = process.env) {
+  const apiKey = await resolveApiKey(profile, env);
+  const body = {
+    model: profile.upstream.model,
+    messages: [{ role: 'user', content: 'CGB credential preflight. Reply OK.' }],
+    stream: false,
+    max_tokens: 1
+  };
+  const response = await fetch(`${profile.upstream.base_url}/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` }, body: JSON.stringify(body) });
+  if (response.status === 401 || response.status === 403) {
+    const text = redact(await response.text().catch(() => ''));
+    throw new Error(`upstream credential check failed (${response.status}) for profile ${profile.name}: ${extractUpstreamErrorMessage(text) || text.slice(0, 300) || 'invalid credentials'}`);
+  }
+  await response.arrayBuffer().catch(() => {});
+  return response.status;
+}
+
 export async function createProxy(profile, options = {}) {
   const host = options.host || '127.0.0.1';
   if (host !== '127.0.0.1' && options.allowUnsafeHost !== true) throw new Error('proxy host must be 127.0.0.1 unless allowUnsafeHost is true');
@@ -117,3 +134,10 @@ function readBody(req) { return new Promise((resolve, reject) => { let body=''; 
 function json(res, status, data) { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(`${JSON.stringify(data)}\n`); }
 function noContent(res, headers = {}) { res.writeHead(204, headers); res.end(); }
 async function pipeError(res, upstream) { const text = redact(await upstream.text()); res.writeHead(upstream.status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { type: 'upstream_error', status: upstream.status, message: text.slice(0, 2000) } })); }
+
+function extractUpstreamErrorMessage(text) {
+  try {
+    const parsed = JSON.parse(text);
+    return parsed?.error?.message || parsed?.detail || parsed?.message || parsed?.title || '';
+  } catch { return ''; }
+}

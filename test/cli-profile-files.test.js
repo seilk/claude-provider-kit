@@ -60,7 +60,7 @@ test('CLI launches a profile directly without shell aliases or -- separator', as
   const fakeClaude = path.join(fakeBin, 'claude');
   await fs.mkdir(fakeBin);
   await fs.writeFile(fakeClaude, `#!/usr/bin/env node\nconsole.log(JSON.stringify({ argv: process.argv.slice(2), auth: process.env.ANTHROPIC_AUTH_TOKEN ? 'set' : 'missing', apiKey: process.env.ANTHROPIC_API_KEY || null, baseUrl: process.env.ANTHROPIC_BASE_URL || null, display: process.env.CGB_DISPLAY_MODEL || null }));\n`, { mode: 0o755 });
-  const env = { CGB_CONFIG_DIR: dir, PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`, CUSTOM_PROVIDER_API_KEY: 'test-key' };
+  const env = { CGB_CONFIG_DIR: dir, CGB_SKIP_PREFLIGHT: '1', PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`, CUSTOM_PROVIDER_API_KEY: 'test-key' };
   assert.equal(run(['init'], env).status, 0);
   const create = run(['profile', 'create', 'gateway-gpt-4.1', '--base-url', 'https://api.example.com/v1', '--model', 'gpt-4.1', '--key-env', 'CUSTOM_PROVIDER_API_KEY', '--format', 'yaml'], env);
   assert.equal(create.status, 0, create.stderr);

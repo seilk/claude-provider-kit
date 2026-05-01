@@ -3,12 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { readProfile } from './config.js';
-import { listenProxy } from './proxy.js';
+import { listenProxy, preflightUpstream } from './proxy.js';
 import { shellQuote } from './shell.js';
 
 export async function runClaude(profileName, args = [], options = {}) {
   const env = options.env || process.env;
   const profile = await readProfile(profileName, env);
+  if (options.preflight !== false && env.CGB_SKIP_PREFLIGHT !== '1') await preflightUpstream(profile, env);
   const proxy = await listenProxy(profile, { env });
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cgb-claude-'));
   const settingsPath = path.join(tmp, 'settings.json');
