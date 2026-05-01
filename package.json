@@ -38,6 +38,7 @@
     "bin",
     "src",
     "scripts",
+    "assets",
     "README.md",
     "LICENSE",
     "docs"

@@ -1,5 +1,9 @@
 # Code Gate Bridge
 
+<p align="center">
+  <img src="assets/banner.svg" width="100%" alt="Code Gate Bridge pixel art banner">
+</p>
+
 A local Anthropic-compatible proxy and profile manager for Claude Code. CGB is provider-agnostic: it lets Claude Code talk to custom upstream models through local, reversible, observable profiles.
 
 ## Status
