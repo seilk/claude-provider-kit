@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs/promises';
 import { readState } from './state.js';
 import { stripControls } from './redact.js';
 
 export async function renderStatusline(input, env = process.env) {
   const display = truncate(env.CGB_DISPLAY_MODEL || env.CPK_DISPLAY_MODEL || env.CCS_DISPLAY_MODEL || await observedModel(env));
   const status = parseStatusInput(input);
-  const context = renderContextSegment(status?.context_window);
+  const context = renderContextSegment(await contextWindowForStatus(status));
   let forwarded = input;
   if (display && status) {
     const data = { ...status };
@@ -68,7 +69,11 @@ function contextLineForBase(context) {
   const pctText = match[1];
   const tokensText = match[2] || '';
   const pct = Number.parseFloat(pctText);
-  const filled = Number.isFinite(pct) ? Math.max(0, Math.min(10, Math.round(pct / 10))) : 0;
+  let filled = 0;
+  if (Number.isFinite(pct)) {
+    const clamped = Math.max(0, Math.min(100, pct));
+    filled = clamped > 0 ? Math.max(1, Math.round(clamped / 10)) : 0;
+  }
   const bar = `${'█'.repeat(filled)}${'░'.repeat(10 - filled)}`;
   return `Context ${bar} ${pctText}${tokensText ? ` ${tokensText}` : ''}`;
 }
@@ -78,6 +83,57 @@ function parseStatusInput(input) {
     const parsed = JSON.parse(input || '{}');
     return parsed && typeof parsed === 'object' ? parsed : null;
   } catch { return null; }
+}
+
+async function contextWindowForStatus(status) {
+  const context = status?.context_window;
+  if (hasContextUsage(context)) return context;
+  const transcriptUsage = await latestTranscriptUsage(status?.transcript_path);
+  if (!transcriptUsage) return context;
+  const windowSize = numeric(context?.context_window_size);
+  const inputTokens = numeric(transcriptUsage.input_tokens) || 0;
+  const outputTokens = numeric(transcriptUsage.output_tokens) || 0;
+  const usedTokens = inputTokens + outputTokens;
+  const usedPct = Number.isFinite(windowSize) && windowSize > 0 ? (usedTokens / windowSize) * 100 : NaN;
+  return {
+    ...(context && typeof context === 'object' ? context : {}),
+    total_input_tokens: inputTokens,
+    total_output_tokens: outputTokens,
+    ...(Number.isFinite(windowSize) && windowSize > 0 ? { context_window_size: windowSize } : {}),
+    ...(Number.isFinite(usedPct) ? { used_percentage: usedPct } : {})
+  };
+}
+
+function hasContextUsage(context) {
+  if (!context || typeof context !== 'object') return false;
+  const pct = numeric(context.used_percentage ?? context.current_usage);
+  const inputTokens = numeric(context.total_input_tokens);
+  const outputTokens = numeric(context.total_output_tokens);
+  return (Number.isFinite(pct) && pct > 0) || (Number.isFinite(inputTokens) && inputTokens > 0) || (Number.isFinite(outputTokens) && outputTokens > 0);
+}
+
+async function latestTranscriptUsage(transcriptPath) {
+  if (typeof transcriptPath !== 'string' || !transcriptPath) return null;
+  try {
+    const stat = await fs.stat(transcriptPath);
+    const length = Math.min(stat.size, 262144);
+    const handle = await fs.open(transcriptPath, 'r');
+    try {
+      const buffer = Buffer.alloc(length);
+      await handle.read(buffer, 0, length, stat.size - length);
+      const lines = buffer.toString('utf8').split(/\r?\n/).reverse();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let entry;
+        try { entry = JSON.parse(line); } catch { continue; }
+        const usage = entry?.message?.usage;
+        if (entry?.type === 'assistant' && usage && typeof usage === 'object') return usage;
+      }
+    } finally {
+      await handle.close();
+    }
+  } catch { return null; }
+  return null;
 }
 
 function renderContextSegment(context) {

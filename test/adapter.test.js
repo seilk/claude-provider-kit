@@ -11,6 +11,12 @@ test('rewrites visible Claude model to upstream model', () => {
   assert.deepEqual(out.messages, [{ role: 'user', content: 'hi' }]);
 });
 
+test('requests streaming usage from OpenAI-compatible upstreams', () => {
+  const out = anthropicToOpenAI({ model: 'claude-opus-4-7', messages: [{ role: 'user', content: 'hi' }], stream: true }, profile);
+  assert.equal(out.stream, true);
+  assert.deepEqual(out.stream_options, { include_usage: true });
+});
+
 test('forwards Claude Code tool definitions to OpenAI-compatible upstream', () => {
   const out = anthropicToOpenAI({
     model: 'claude-opus-4-7',
@@ -107,4 +113,17 @@ test('maps streamed OpenAI tool_calls to Anthropic tool_use SSE events', async (
   assert.match(joined, /"type":"input_json_delta","partial_json":"\{\\\"command\\\":"/);
   assert.match(joined, /"type":"input_json_delta","partial_json":"\\\"pwd\\\"\}"/);
   assert.match(joined, /"stop_reason":"tool_use"/);
+});
+
+test('propagates final streaming usage so Claude Code can update context_window', async () => {
+  const stream = Readable.from([
+    Buffer.from('data: {"choices":[{"delta":{"content":"OK"}}]}\n\n'),
+    Buffer.from('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'),
+    Buffer.from('data: {"choices":[],"usage":{"prompt_tokens":1234,"completion_tokens":56,"total_tokens":1290}}\n\n'),
+    Buffer.from('data: [DONE]\n\n')
+  ]);
+  const events = [];
+  for await (const event of openAIStreamToAnthropic(stream, profile)) events.push(event);
+  const joined = events.join('');
+  assert.match(joined, /event: message_delta\ndata: .*"usage":\{"input_tokens":1234,"output_tokens":56\}/);
 });

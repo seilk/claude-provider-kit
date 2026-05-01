@@ -9,6 +9,7 @@ export function anthropicToOpenAI(body, profile) {
     model: profile.upstream.model,
     messages,
     stream: body.stream === true,
+    ...(body.stream === true ? { stream_options: { include_usage: true } } : {}),
     max_tokens: Number(body.max_tokens || profile.max_output_tokens || 8192),
     ...(body.temperature === undefined ? {} : { temperature: body.temperature }),
     ...convertTools(body),
@@ -104,6 +105,7 @@ export async function* openAIStreamToAnthropic(stream, profile) {
   const openBlocks = [];
   const toolBlocks = new Map();
   let finalFinishReason = 'stop';
+  let finalUsage = null;
 
   yield sse('message_start', { type: 'message_start', message: { id: `cgb_${Date.now()}`, type: 'message', role: 'assistant', model: profile.visible_model, content: [], stop_reason: null, usage: { input_tokens: 0, output_tokens: 0 } } });
 
@@ -118,6 +120,7 @@ export async function* openAIStreamToAnthropic(stream, profile) {
       if (payload === '[DONE]') continue;
       let data;
       try { data = JSON.parse(payload); } catch { continue; }
+      if (data.usage) finalUsage = data.usage;
       const choice = data.choices?.[0] || {};
       const delta = choice.delta || {};
       if (choice.finish_reason) finalFinishReason = choice.finish_reason;
@@ -157,8 +160,15 @@ export async function* openAIStreamToAnthropic(stream, profile) {
     yield sse('content_block_start', { type: 'content_block_start', index: textIndex, content_block: { type: 'text', text: '' } });
   }
   for (const index of openBlocks) yield sse('content_block_stop', { type: 'content_block_stop', index });
-  yield sse('message_delta', { type: 'message_delta', delta: { stop_reason: finalFinishReason === 'tool_calls' ? 'tool_use' : finalFinishReason === 'length' ? 'max_tokens' : 'end_turn' }, usage: { output_tokens: 0 } });
+  yield sse('message_delta', { type: 'message_delta', delta: { stop_reason: finalFinishReason === 'tool_calls' ? 'tool_use' : finalFinishReason === 'length' ? 'max_tokens' : 'end_turn' }, usage: streamUsage(finalUsage) });
   yield sse('message_stop', { type: 'message_stop' });
+}
+
+function streamUsage(usage) {
+  return {
+    input_tokens: Number(usage?.prompt_tokens || 0),
+    output_tokens: Number(usage?.completion_tokens || 0)
+  };
 }
 
 function sse(event, data) { return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`; }
